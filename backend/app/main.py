@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from backend.app.database import init_db, get_db
@@ -26,6 +26,13 @@ app = FastAPI(
     description="Evidence-first fact knowledge layer: local extraction, deterministic normalization, entity resolution, and relationship engine.",
     version="2.0.0"
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": traceback.format_exc()}
+    )
 
 @app.on_event("startup")
 def on_startup():

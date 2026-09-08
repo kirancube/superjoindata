@@ -29,19 +29,7 @@ def create_db_engine(url: str):
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
     return create_engine(url, connect_args=connect_args, pool_pre_ping=True)
 
-try:
-    engine = create_db_engine(DATABASE_URL)
-    # Test connection if PostgreSQL
-    if not DATABASE_URL.startswith("sqlite"):
-        with engine.connect() as test_conn:
-            test_conn.execute(text("SELECT 1"))
-        print("[DATABASE] Successfully connected to remote PostgreSQL.")
-except Exception as e:
-    print(f"[DATABASE WARNING] Failed to connect to {DATABASE_URL[:25]}...: {e}")
-    print(f"[DATABASE WARNING] Falling back to local SQLite at {DEFAULT_DB_PATH}")
-    DATABASE_URL = f"sqlite:///{DEFAULT_DB_PATH}"
-    engine = create_db_engine(DATABASE_URL)
-
+engine = create_db_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -49,11 +37,22 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
 def init_db():
+    global engine, SessionLocal
     try:
         Base.metadata.create_all(bind=engine)
+        print("[DATABASE] Successfully created all tables on current engine.")
     except Exception as e:
-        print(f"[DATABASE] init_db error: {e}")
+        print(f"[DATABASE WARNING] Failed to initialize tables on {DATABASE_URL[:25]}...: {e}")
+        sqlite_url = f"sqlite:///{DEFAULT_DB_PATH}"
+        print(f"[DATABASE] Switching to SQLite fallback at {DEFAULT_DB_PATH}")
+        engine = create_db_engine(sqlite_url)
+        SessionLocal.configure(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        print("[DATABASE] Successfully created tables in SQLite fallback.")

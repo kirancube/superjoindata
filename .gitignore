@@ -1,0 +1,28 @@
+# Databases & storage
+fact_knowledge.db
+sample_pdfs/
+uploads/
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+.vercel/
+
+# Environment secrets
+.env
+.env.local
+.env.*.local

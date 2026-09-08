@@ -400,82 +400,88 @@ def get_relationship(rel_id: str, db: Session = Depends(get_db)):
 @app.post("/demo/seed")
 def seed_demo_data(db: Session = Depends(get_db)):
     """Generates synthetic PDFs and processes them end-to-end to demonstrate the 4 challenge cases."""
-    init_db()
-    pdf_paths = generate_sample_pdfs()
+    import traceback
+    try:
+        init_db()
+        pdf_paths = generate_sample_pdfs()
 
-    db.query(RelationshipDB).delete()
-    db.query(FactEvidenceDB).delete()
-    db.query(FactDB).delete()
-    db.query(DocumentPageDB).delete()
-    db.query(ProcessingRunDB).delete()
-    db.query(DocumentDB).delete()
-    db.commit()
-
-    processed_docs = []
-    for pdf_path in pdf_paths:
-        filename = pdf_path.name
-        doc_id = f"DOC-{uuid.uuid4().hex[:6].upper()}"
-
-        page_count, pages_data = PDFParser.parse_pdf(str(pdf_path))
-        
-        doc_db = DocumentDB(
-            id=doc_id,
-            filename=filename,
-            file_path=str(pdf_path),
-            page_count=page_count,
-            processing_status="COMPLETED",
-            upload_date=datetime.datetime.now(datetime.timezone.utc),
-            fact_count=0
-        )
-        db.add(doc_db)
+        db.query(RelationshipDB).delete()
+        db.query(FactEvidenceDB).delete()
+        db.query(FactDB).delete()
+        db.query(DocumentPageDB).delete()
+        db.query(ProcessingRunDB).delete()
+        db.query(DocumentDB).delete()
         db.commit()
 
-        for pdata in pages_data:
-            db_page = DocumentPageDB(
-                id=f"PG-{uuid.uuid4().hex[:8].upper()}",
-                document_id=doc_id,
-                page_number=pdata.page_number,
-                text_content=pdata.text,
-                blocks_json=pdata.blocks
-            )
-            db.add(db_page)
+        processed_docs = []
+        for pdf_path in pdf_paths:
+            filename = pdf_path.name
+            doc_id = f"DOC-{uuid.uuid4().hex[:6].upper()}"
 
-        facts = FactExtractionEngine.extract_facts_from_pages(
-            doc_id=doc_id,
-            filename=filename,
-            pages=pages_data
-        )
-
-        for fdict in facts:
-            ev_data = fdict.pop("evidence")
-            scope_q = fdict.pop("scope_qualifiers", [])
-            fdict["scope_qualifiers_json"] = scope_q
-
-            db_fact = FactDB(**fdict)
-            db.add(db_fact)
+            page_count, pages_data = PDFParser.parse_pdf(str(pdf_path))
             
-            db_ev = FactEvidenceDB(
-                id=ev_data["id"],
-                fact_id=db_fact.id,
-                document_id=ev_data["document_id"],
-                filename=ev_data["filename"],
-                page_number=ev_data["page_number"],
-                source_text=ev_data["source_text"],
-                bounding_box_json=ev_data["bounding_box"]
+            doc_db = DocumentDB(
+                id=doc_id,
+                filename=filename,
+                file_path=str(pdf_path),
+                page_count=page_count,
+                processing_status="COMPLETED",
+                upload_date=datetime.datetime.now(datetime.timezone.utc),
+                fact_count=0
             )
-            db.add(db_ev)
+            db.add(doc_db)
+            db.commit()
 
-        doc_db.fact_count = len(facts)
-        db.commit()
-        processed_docs.append(doc_db.filename)
+            for pdata in pages_data:
+                db_page = DocumentPageDB(
+                    id=f"PG-{uuid.uuid4().hex[:8].upper()}",
+                    document_id=doc_id,
+                    page_number=pdata.page_number,
+                    text_content=pdata.text,
+                    blocks_json=pdata.blocks
+                )
+                db.add(db_page)
 
-    reconcile_knowledge_layer(db)
+            facts = FactExtractionEngine.extract_facts_from_pages(
+                doc_id=doc_id,
+                filename=filename,
+                pages=pages_data
+            )
 
-    return {
-        "status": "success",
-        "message": f"Ingested and processed {len(processed_docs)} sample PDFs.",
-        "documents": processed_docs
-    }
+            for fdict in facts:
+                ev_data = fdict.pop("evidence")
+                scope_q = fdict.pop("scope_qualifiers", [])
+                fdict["scope_qualifiers_json"] = scope_q
+
+                db_fact = FactDB(**fdict)
+                db.add(db_fact)
+                
+                db_ev = FactEvidenceDB(
+                    id=ev_data["id"],
+                    fact_id=db_fact.id,
+                    document_id=ev_data["document_id"],
+                    filename=ev_data["filename"],
+                    page_number=ev_data["page_number"],
+                    source_text=ev_data["source_text"],
+                    bounding_box_json=ev_data["bounding_box"]
+                )
+                db.add(db_ev)
+
+            doc_db.fact_count = len(facts)
+            db.commit()
+            processed_docs.append(doc_db.filename)
+
+        reconcile_knowledge_layer(db)
+
+        return {
+            "status": "success",
+            "message": f"Ingested and processed {len(processed_docs)} sample PDFs.",
+            "documents": processed_docs
+        }
+    except Exception as e:
+        db.rollback()
+        print("SEED ERROR:", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Seed error: {str(e)} | {traceback.format_exc()}")
 
 # ---------------------------------------------------------
 # Helper Pipeline Reconciler

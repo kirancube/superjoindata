@@ -1,6 +1,7 @@
 import os
 import uuid
 import datetime
+import traceback
 from pathlib import Path
 from typing import List, Optional
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
@@ -26,6 +27,14 @@ app = FastAPI(
     version="2.0.0"
 )
 
+@app.on_event("startup")
+def on_startup():
+    try:
+        init_db()
+        print("[STARTUP] Database schema initialized successfully.")
+    except Exception as e:
+        print(f"[STARTUP WARNING] Failed to initialize DB schema: {e}")
+
 frontend_url_env = os.getenv("FRONTEND_URL", "")
 cors_origins_env = os.getenv("CORS_ORIGINS", "")
 allowed_origins = []
@@ -46,7 +55,7 @@ app.add_middleware(
 )
 
 MAX_PDF_SIZE_MB = int(os.getenv("MAX_PDF_SIZE_MB", "20"))
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).resolve().parent.parent.parent / "uploads")))
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(Path("/tmp/uploads") if os.path.exists("/tmp") else Path(__file__).resolve().parent.parent.parent / "uploads")))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
@@ -88,7 +97,6 @@ def read_root():
 @app.post("/api/documents", response_model=DocumentSchema)
 @app.post("/documents", response_model=DocumentSchema)
 def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    init_db()
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
@@ -127,13 +135,11 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
 @app.get("/api/documents", response_model=List[DocumentSchema])
 @app.get("/documents", response_model=List[DocumentSchema])
 def list_documents(db: Session = Depends(get_db)):
-    init_db()
     return db.query(DocumentDB).order_by(DocumentDB.upload_date.desc()).all()
 
 @app.get("/api/documents/{doc_id}", response_model=DocumentDetailSchema)
 @app.get("/documents/{doc_id}", response_model=DocumentDetailSchema)
 def get_document(doc_id: str, db: Session = Depends(get_db)):
-    init_db()
     doc = db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -159,7 +165,6 @@ def get_document(doc_id: str, db: Session = Depends(get_db)):
 @app.get("/api/documents/{doc_id}/facts", response_model=List[FactSchema])
 @app.get("/documents/{doc_id}/facts", response_model=List[FactSchema])
 def get_document_facts(doc_id: str, db: Session = Depends(get_db)):
-    init_db()
     doc = db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -175,7 +180,6 @@ def get_document_facts(doc_id: str, db: Session = Depends(get_db)):
 @app.post("/api/documents/{doc_id}/process")
 @app.post("/documents/{doc_id}/process")
 def process_document(doc_id: str, db: Session = Depends(get_db)):
-    init_db()
     doc = db.query(DocumentDB).filter(DocumentDB.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -276,7 +280,6 @@ def process_document(doc_id: str, db: Session = Depends(get_db)):
 @app.get("/api/facts", response_model=List[FactSchema])
 @app.get("/facts", response_model=List[FactSchema])
 def list_facts(doc_id: Optional[str] = None, fact_type: Optional[str] = None, db: Session = Depends(get_db)):
-    init_db()
     query = db.query(FactDB)
     if doc_id:
         query = query.filter(FactDB.document_id == doc_id)
@@ -294,7 +297,6 @@ def list_facts(doc_id: Optional[str] = None, fact_type: Optional[str] = None, db
 @app.get("/api/facts/{fact_id}", response_model=FactSchema)
 @app.get("/facts/{fact_id}", response_model=FactSchema)
 def get_fact(fact_id: str, db: Session = Depends(get_db)):
-    init_db()
     fact = db.query(FactDB).filter(FactDB.id == fact_id).first()
     if not fact:
         raise HTTPException(status_code=404, detail="Fact not found.")
@@ -305,7 +307,6 @@ def get_fact(fact_id: str, db: Session = Depends(get_db)):
 @app.get("/api/facts/{fact_id}/relationships", response_model=List[RelationshipSchema])
 @app.get("/facts/{fact_id}/relationships", response_model=List[RelationshipSchema])
 def get_fact_relationships(fact_id: str, db: Session = Depends(get_db)):
-    init_db()
     rel_list = db.query(RelationshipDB).filter(
         (RelationshipDB.fact_id_a == fact_id) | (RelationshipDB.fact_id_b == fact_id)
     ).all()
@@ -338,7 +339,6 @@ def get_fact_relationships(fact_id: str, db: Session = Depends(get_db)):
 @app.get("/api/relationships", response_model=List[RelationshipSchema])
 @app.get("/relationships", response_model=List[RelationshipSchema])
 def list_relationships(category: Optional[str] = None, db: Session = Depends(get_db)):
-    init_db()
     query = db.query(RelationshipDB)
     if category:
         query = query.filter(RelationshipDB.category == category)
@@ -369,7 +369,6 @@ def list_relationships(category: Optional[str] = None, db: Session = Depends(get
 @app.get("/api/relationships/{rel_id}", response_model=RelationshipSchema)
 @app.get("/relationships/{rel_id}", response_model=RelationshipSchema)
 def get_relationship(rel_id: str, db: Session = Depends(get_db)):
-    init_db()
     rel = db.query(RelationshipDB).filter(RelationshipDB.id == rel_id).first()
     if not rel:
         raise HTTPException(status_code=404, detail="Relationship not found.")
@@ -400,9 +399,7 @@ def get_relationship(rel_id: str, db: Session = Depends(get_db)):
 @app.post("/demo/seed")
 def seed_demo_data(db: Session = Depends(get_db)):
     """Generates synthetic PDFs and processes them end-to-end to demonstrate the 4 challenge cases."""
-    import traceback
     try:
-        init_db()
         pdf_paths = generate_sample_pdfs()
 
         db.query(RelationshipDB).delete()

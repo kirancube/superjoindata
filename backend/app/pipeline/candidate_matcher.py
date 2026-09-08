@@ -1,0 +1,83 @@
+from typing import List, Dict, Any, Tuple
+from collections import defaultdict
+
+class CandidateFactMatcher:
+
+    @classmethod
+    def get_candidate_pairs(cls, facts: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+        candidate_pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+        seen_pair_keys = set()
+        predicate_buckets = defaultdict(list)
+
+        for fact in facts:
+            pred = fact.get("predicate", "")
+            ftype = fact.get("fact_type", "NUMERICAL")
+            rval = fact.get("raw_value", "")
+            if not pred and not rval:
+                continue
+            pred_key = cls._get_predicate_key(pred, ftype, rval)
+            predicate_buckets[pred_key].append(fact)
+
+        for pred_key, bucket_facts in predicate_buckets.items():
+            # Prevent catastrophic O(N^2) memory explosion for massive generic buckets
+            # Caps candidate pair generation to a safe limit when analyzing >7 PDFs
+            if len(bucket_facts) > 150:
+                bucket_facts = bucket_facts[:150]
+                
+            for i in range(len(bucket_facts)):
+                for j in range(i + 1, len(bucket_facts)):
+                    fact_a = bucket_facts[i]
+                    fact_b = bucket_facts[j]
+
+                    fid_a = fact_a.get("id", fact_a.get("fact_id", ""))
+                    fid_b = fact_b.get("id", fact_b.get("fact_id", ""))
+
+                    if fid_a and fid_b and fid_a == fid_b:
+                        continue
+
+                    if fact_a.get("document_id") == fact_b.get("document_id"):
+                        continue
+
+                    pair_key = tuple(sorted([fid_a, fid_b]))
+                    if pair_key in seen_pair_keys:
+                        continue
+
+                    seen_pair_keys.add(pair_key)
+                    candidate_pairs.append((fact_a, fact_b))
+
+        return candidate_pairs
+
+    @classmethod
+    def find_candidate_pairs(cls, facts: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+        return cls.get_candidate_pairs(facts)
+
+    @classmethod
+    def _get_predicate_key(cls, predicate: str, fact_type: str, raw_value: str) -> str:
+        import re
+        p_clean = predicate.lower().strip()
+
+        if "margin" in p_clean:
+            return "METRIC_OPERATING_MARGIN"
+        elif "revenue" in p_clean or "sales" in p_clean or "turnover" in p_clean or "cloud" in p_clean:
+            return "METRIC_REVENUE"
+        elif "headcount" in p_clean or "employee" in p_clean or "workforce" in p_clean or "staff" in p_clean:
+            return "METRIC_HEADCOUNT"
+        elif "income" in p_clean or "profit" in p_clean or "loss" in p_clean or "ebit" in p_clean or "earnings" in p_clean:
+            return "METRIC_PROFIT_LOSS"
+        elif "capital" in p_clean or "capex" in p_clean or "deployment" in p_clean or "investment" in p_clean:
+            return "METRIC_CAPEX"
+        elif "growth" in p_clean or "expansion" in p_clean or "increase" in p_clean or "decline" in p_clean:
+            return "METRIC_GROWTH"
+        elif "eps" in p_clean or "per share" in p_clean:
+            return "METRIC_EPS"
+        elif "debt" in p_clean or "borrowing" in p_clean or "liability" in p_clean:
+            return "METRIC_DEBT"
+        elif "cash" in p_clean or "liquidity" in p_clean:
+            return "METRIC_CASH"
+        elif "deliver" in p_clean or "shipment" in p_clean or "production" in p_clean or "volume" in p_clean:
+            return "METRIC_VOLUME"
+        else:
+            words = [w for w in re.findall(r'\b[a-z]{3,}\b', p_clean) if w not in ['the', 'and', 'for', 'was', 'were', 'our', 'with', 'from', 'has', 'reported']]
+            if words:
+                return f"METRIC_{words[0].upper()}"
+            return f"GENERIC_{fact_type}"

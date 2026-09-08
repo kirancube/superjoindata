@@ -1,9 +1,11 @@
 import os
+import tempfile
 from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-SAMPLE_DOCS_DIR = Path(__file__).resolve().parent.parent.parent / "sample_pdfs"
+default_dir = Path("/tmp/sample_pdfs") if os.path.exists("/tmp") else Path(__file__).resolve().parent.parent.parent / "sample_pdfs"
+SAMPLE_DOCS_DIR = Path(os.getenv("SAMPLE_DOCS_DIR", str(default_dir)))
 
 SAMPLE_PDF_DEFINITIONS = [
     {

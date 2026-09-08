@@ -217,8 +217,14 @@ def process_document(doc_id: str, db: Session = Depends(get_db)):
             pages=pages_data
         )
 
-        db.query(FactEvidenceDB).filter(FactEvidenceDB.document_id == doc_id).delete()
-        db.query(FactDB).filter(FactDB.document_id == doc_id).delete()
+        existing_fact_ids = [r[0] for r in db.query(FactDB.id).filter(FactDB.document_id == doc_id).all()]
+        if existing_fact_ids:
+            db.query(RelationshipDB).filter(
+                (RelationshipDB.fact_id_a.in_(existing_fact_ids)) | (RelationshipDB.fact_id_b.in_(existing_fact_ids))
+            ).delete(synchronize_session=False)
+
+        db.query(FactEvidenceDB).filter(FactEvidenceDB.document_id == doc_id).delete(synchronize_session=False)
+        db.query(FactDB).filter(FactDB.document_id == doc_id).delete(synchronize_session=False)
 
         for fdict in extracted_facts:
             ev_data = fdict.pop("evidence")
@@ -401,6 +407,7 @@ def seed_demo_data(db: Session = Depends(get_db)):
     db.query(FactEvidenceDB).delete()
     db.query(FactDB).delete()
     db.query(DocumentPageDB).delete()
+    db.query(ProcessingRunDB).delete()
     db.query(DocumentDB).delete()
     db.commit()
 

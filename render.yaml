@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: superjoindata-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python -m spacy download en_core_web_sm
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: MAX_PDF_SIZE_MB
+        value: "20"
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: FRONTEND_URL
+        value: "https://superjoindata.vercel.app"
